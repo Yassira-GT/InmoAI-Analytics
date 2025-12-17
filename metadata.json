@@ -1,0 +1,5 @@
+{
+  "name": "InmoAI Analytics",
+  "description": "Plataforma inteligente de análisis inmobiliario. Evalúa la viabilidad de compra de inmuebles utilizando IA avanzada (Gemini) y gestión de datos (Supabase/Local). Genera reportes profesionales y ofrece asistencia conversacional.",
+  "requestFramePermissions": []
+}
