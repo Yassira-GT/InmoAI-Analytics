@@ -4,26 +4,32 @@ import { PropertyInput, AnalysisReport } from '../types';
 const N8N_WEBHOOK_URL = "https://yassira.app.n8n.cloud/webhook/dcda166a-21a4-4946-aa01-3b78863bf0c1";
 
 /**
- * Función de utilidad para reintentar peticiones fallidas
+ * Función de utilidad para extraer el contenido real de una respuesta de n8n
  */
-async function fetchWithRetry(url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> {
-  try {
-    const response = await fetch(url, options);
-    if (!response.ok && retries > 0) {
-      throw new Error(`Status: ${response.status}`);
-    }
-    return response;
-  } catch (error) {
-    if (retries <= 0) throw error;
-    console.warn(`Retrying fetch... Attempts left: ${retries}. Error: ${error}`);
-    await new Promise(resolve => setTimeout(resolve, backoff));
-    return fetchWithRetry(url, options, retries - 1, backoff * 2);
-  }
-}
+const extractPayload = (data: any) => {
+  // 1. Si es un array, tomamos el primer elemento (común en n8n)
+  const item = Array.isArray(data) ? data[0] : data;
+  if (!item) return null;
 
-export const triggerN8NAnalysis = async (input: PropertyInput): Promise<Partial<AnalysisReport> & { resultado?: string }> => {
+  // 2. n8n suele envolver la respuesta en .json, .body o .data dependiendo del nodo de salida
+  const content = item.json || item.body || item.data || item;
+  
+  // 3. Si el contenido es un string que parece JSON, intentamos parsearlo
+  if (typeof content === 'string' && (content.trim().startsWith('{') || content.trim().startsWith('['))) {
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      return content;
+    }
+  }
+  
+  return content;
+};
+
+export const triggerN8NAnalysis = async (input: PropertyInput): Promise<any> => {
   try {
-    const response = await fetchWithRetry(N8N_WEBHOOK_URL, {
+    console.log("Enviando datos a n8n:", input);
+    const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,29 +37,19 @@ export const triggerN8NAnalysis = async (input: PropertyInput): Promise<Partial<
       body: JSON.stringify(input),
     });
 
-    const responseData = await response.json();
-    
-    // n8n a veces devuelve [ { json: { ... } } ] o simplemente { ... }
-    const firstItem = Array.isArray(responseData) ? responseData[0] : responseData;
-    const rawContent = firstItem?.json || firstItem;
-    
-    // Si el contenido es un string (ej: bloque markdown), intentamos parsearlo
-    if (typeof rawContent === 'string') {
-      try {
-        const cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-        if (cleanContent.startsWith('{')) {
-          return JSON.parse(cleanContent);
-        }
-        return { htmlContent: rawContent };
-      } catch (e) {
-        return { htmlContent: rawContent };
-      }
+    if (!response.ok) {
+        throw new Error(`Error en el Webhook de n8n: ${response.status}`);
     }
 
-    // Retornamos el objeto procesado (que podría contener la clave 'resultado' si n8n falló)
-    return (rawContent || {}) as any;
+    const rawData = await response.json();
+    console.log("Respuesta bruta de n8n:", rawData);
+
+    const processedData = extractPayload(rawData);
+    console.log("Datos procesados de n8n:", processedData);
+
+    return processedData;
   } catch (error) {
-    console.error("Fallo crítico en n8nService:", error);
-    throw new Error("No se pudo establecer conexión con el agente de análisis.");
+    console.error("Fallo de conexión con n8n:", error);
+    throw error;
   }
 };

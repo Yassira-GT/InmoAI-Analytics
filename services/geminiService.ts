@@ -1,8 +1,8 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { PropertyInput, AnalysisReport } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 const ANALYSIS_SYSTEM_INSTRUCTION = `
 Actúa como un Analista de Inversiones Inmobiliarias de Clase Mundial.
@@ -24,8 +24,6 @@ Dirígete al usuario por su nombre.
 `;
 
 export const analyzeProperty = async (property: PropertyInput): Promise<AnalysisReport> => {
-  if (!apiKey) throw new Error("API Key is missing");
-
   const prompt = `
     Prepara un análisis de inversión inmobiliaria para: ${property.userInfo.firstName} ${property.userInfo.lastName}.
     CONTEXTO TEMPORAL: Asume que la fecha de consulta actual es Diciembre de 2025.
@@ -55,7 +53,7 @@ export const analyzeProperty = async (property: PropertyInput): Promise<Analysis
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         systemInstruction: ANALYSIS_SYSTEM_INSTRUCTION,
@@ -112,9 +110,10 @@ export const analyzeProperty = async (property: PropertyInput): Promise<Analysis
       }
     });
 
-    if (!response.text) throw new Error("No response from AI");
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
 
-    const data = JSON.parse(response.text);
+    const data = JSON.parse(text);
     
     return {
       id: crypto.randomUUID(),
@@ -131,17 +130,4 @@ export const analyzeProperty = async (property: PropertyInput): Promise<Analysis
     console.error("Analysis Failed", error);
     throw error;
   }
-};
-
-export const chatAboutProperty = async (history: {role: string, parts: {text: string}[]}[], newMessage: string) => {
-    const chat = ai.chats.create({
-        model: "gemini-2.5-flash",
-        history: history,
-        config: {
-            systemInstruction: "Eres un asistente inmobiliario útil. Estás discutiendo una propiedad específica basada en un informe generado previamente. Asume que la fecha actual es Diciembre de 2025. Mantén las respuestas concisas, profesionales y en ESPAÑOL."
-        }
-    });
-
-    const result = await chat.sendMessage({ message: newMessage });
-    return result.text;
 };

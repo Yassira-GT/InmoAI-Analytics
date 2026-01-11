@@ -81,44 +81,52 @@ const MainContent = () => {
     let finalReport: AnalysisReport | null = null;
 
     try {
-      // INTENTO 1: Orquestación con Agente Externo (n8n)
       console.log("Iniciando análisis con Agente Primario (n8n)...");
       const n8nData = await triggerN8NAnalysis(input);
       
-      // DETECCIÓN DE ERROR ESPECÍFICO DE N8N
-      if (n8nData && n8nData.resultado && n8nData.resultado.includes("fallado")) {
-        console.error("Error reportado por n8n:", n8nData.resultado);
-        // Mostramos el error del usuario pero activamos el fallback para no romper la experiencia
-        alert(`Aviso del Agente n8n: "${n8nData.resultado}". Activando Agente de Respaldo Directo para completar el informe.`);
-        throw new Error(n8nData.resultado);
+      // Validación flexible de la respuesta de n8n
+      const hasContent = n8nData && (n8nData.htmlContent || n8nData.content || n8nData.report || typeof n8nData === 'string');
+      
+      if (!hasContent) {
+        throw new Error("La respuesta de n8n no contiene un informe válido.");
       }
 
-      // Verificamos si los datos de n8n son válidos
-      if (n8nData && n8nData.metrics && n8nData.htmlContent) {
-        finalReport = {
-          id: crypto.randomUUID(),
-          propertyId: input.id || 'temp',
-          metrics: n8nData.metrics as any,
-          marketData: n8nData.marketData as any,
-          viabilityScore: n8nData.viabilityScore || 70,
-          recommendation: (n8nData.recommendation as any) || 'HOLD',
-          htmlContent: n8nData.htmlContent,
-          createdAt: new Date().toISOString()
-        };
-      } else {
-        throw new Error("Datos de n8n incompletos o inválidos.");
-      }
+      // Mapeo inteligente de campos (acepta nombres planos o anidados)
+      const metrics = n8nData.metrics || {
+        roi: n8nData.roi || 0,
+        capRate: n8nData.capRate || 0,
+        monthlyCashflow: n8nData.monthlyCashflow || 0,
+        estimatedRenovationCost: n8nData.estimatedRenovationCost || 0,
+        suggestedOfferPrice: n8nData.suggestedOfferPrice || input.price,
+        appreciationForecast: n8nData.appreciationForecast || 0
+      };
+
+      const marketData = n8nData.marketData || {
+        priceEvolution: n8nData.priceEvolution || [],
+        similarListings: n8nData.similarListings || []
+      };
+
+      finalReport = {
+        id: crypto.randomUUID(),
+        propertyId: input.id || 'temp',
+        metrics: metrics,
+        marketData: marketData,
+        viabilityScore: n8nData.viabilityScore || 70,
+        recommendation: n8nData.recommendation || 'HOLD',
+        htmlContent: typeof n8nData === 'string' ? n8nData : (n8nData.htmlContent || n8nData.content || n8nData.report || "Análisis completado satisfactoriamente."),
+        createdAt: new Date().toISOString()
+      };
+
+      console.log("Informe de n8n generado con éxito.");
 
     } catch (err) {
-      console.warn("Agente Primario falló o devolvió error. Activando Agente de Respaldo Directo (Gemini SDK)...");
+      console.warn("Agente Primario falló. Activando Agente de Respaldo Directo (Gemini SDK)...", err);
       
       try {
-        // INTENTO 2 (FALLBACK): Análisis directo con Gemini SDK
-        // Esto garantiza que el usuario siempre reciba un informe de alta calidad incluso si n8n falla
         finalReport = await analyzeWithGeminiDirect(input);
       } catch (fallbackErr) {
         console.error("Fallo crítico en ambos agentes:", fallbackErr);
-        alert("Lo sentimos, no pudimos generar el análisis. Por favor, verifica tu conexión e inténtalo de nuevo.");
+        alert("Lo sentimos, no pudimos generar el análisis. Verifica la configuración de n8n o tu API Key.");
         setLoading(false);
         return;
       }
@@ -127,7 +135,7 @@ const MainContent = () => {
     if (finalReport) {
       try {
         const savedRecord = await saveProperty(input, finalReport);
-        setProperties(prev => [...prev, savedRecord]);
+        setProperties(prev => [savedRecord, ...prev]);
         setCurrentProperty(savedRecord);
         navigate('/report');
       } catch (saveErr) {
